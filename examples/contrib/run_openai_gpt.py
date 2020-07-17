@@ -102,6 +102,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, default="openai-gpt", help="pretrained model name")
     parser.add_argument("--do_train", action="store_true", help="Whether to run training.")
+    parser.add_argument("--do_text", action="store_true", help="fix the theoretical lowest loss")
+    parser.add_argument("--do_save", action="store_true", help="Save the model")
     parser.add_argument("--do_eval", action="store_true", help="Whether to run eval on the dev set.")
     parser.add_argument(
         "--output_dir",
