@@ -1,3 +1,37 @@
+Skip to content
+Search or jump to…
+
+Pull requests
+Issues
+Marketplace
+Explore
+ 
+@DrAlta 
+huggingface
+/
+transformers
+606
+30.9k7.3k
+Code
+Issues
+522
+Pull requests
+119
+Actions
+Projects
+12
+Wiki
+Security
+Insights
+transformers/examples/contrib/run_openai_gpt.py /
+@julien-c
+julien-c One last reorder of {scheduler,optimizer}.step()
+Latest commit cf72479 on Mar 20
+ History
+ 6 contributors
+@thomwolf@aaugustin@LysandreJik@julien-c@alberduris@rlouf
+316 lines (273 sloc)  13.9 KB
+  
 # coding=utf-8
 # Copyright 2018 Google AI, Google Brain and Carnegie Mellon University Authors and the HuggingFace Inc. team.
 # Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
@@ -16,7 +50,6 @@
 """ OpenAI GPT model fine-tuning script.
     Adapted from https://github.com/huggingface/pytorch-openai-transformer-lm/blob/master/train.py
     It self adapted from https://github.com/openai/finetune-transformer-lm/blob/master/train.py
-
     This script with default values fine-tunes and evaluate a pretrained OpenAI GPT on the RocStories dataset:
         python run_openai_gpt.py \
           --model_name openai-gpt \
@@ -32,6 +65,8 @@ import csv
 import logging
 import os
 import random
+
+import math
 
 import numpy as np
 import torch
@@ -72,7 +107,6 @@ def load_rocstories_dataset(dataset_path):
 
 def pre_process_datasets(encoded_datasets, input_len, cap_length, start_token, delimiter_token, clf_token):
     """ Pre-process datasets containing lists of tuples(story, 1st continuation, 2nd continuation, label)
-
         To Transformer inputs of shape (n_batch, n_alternative, length) comprising for each batch, continuation:
         input_ids[batch, alternative, :] = [start_token] + story[:cap_length] + [delimiter_token] + cont1[:cap_length] + [clf_token]
     """
@@ -258,9 +292,58 @@ def main():
                 )
                 nb_tr_steps += 1
                 tqdm_bar.desc = "Training loss: {:.2e} lr: {:.2e}".format(exp_average_loss, scheduler.get_lr()[0])
+    if args.do_test:
+        nb_tr_steps, tr_loss, exp_average_loss = 0, 0, None
+        model.train()
+        for _ in trange(int(args.num_train_epochs), desc="Epoch"):
+            tr_loss = 0
+            nb_tr_steps = 0
+            tqdm_bar = tqdm(train_dataloader, desc="Training")
+            for step, batch in enumerate(tqdm_bar):
+                batch = tuple(t.to(device) for t in batch)
+                input_ids, mc_token_ids, lm_labels, mc_labels = batch
+                losses = model(input_ids, mc_token_ids=mc_token_ids, lm_labels=lm_labels, mc_labels=mc_labels)
+                loss = args.lm_coef * losses[0] + losses[1]
+                loss.backward()
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+                loop=0
+                newloss=loss.item()
+                intloss=math.inf
+                oldloss=intloss
+                if math.innan(loss.item()):
+                    print("beeping NaN")
+                while True:
+                    learnrate=args.learning_rate
+                    optimizer = AdamW(optimizer_grouped_parameters, lr=learnrate, eps=args.adam_epsilon)
+
+                    loop = loop + 1
+                    if intloss < newloss:
+                        print("counter productive:",newloss,">",intloss)
+                        learnrate=args.learning_rate/2
+                        optimizer = AdamW(optimizer_grouped_parameters, lr=learnrate, eps=args.adam_epsilon)
+                    if oldloss==newloss:
+                      print("as good as it gets:",loss)
+                      break
+                    loss = args.lm_coef * losses[0] + losses[1]
+                    loss.backward()
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
+                    oldloss=intloss
+                    intloss=newloss
+                    newloss=loss.item()
+                tr_loss += loss.item()
+                exp_average_loss = (
+                    loss.item() if exp_average_loss is None else 0.7 * exp_average_loss + 0.3 * loss.item()
+                )
+                nb_tr_steps += 1
+                tqdm_bar.desc = "Training loss: {:.2e} lr: {:.2e}".format(exp_average_loss, scheduler.get_lr()[0])
 
     # Save a trained model
-    if args.do_train:
+    if args.do_train or args.do_save:
         # Save a trained model, configuration and tokenizer
         model_to_save = model.module if hasattr(model, "module") else model  # Only save the model itself
 
@@ -314,3 +397,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+© 2020 GitHub, Inc.
+Terms
+Privacy
+Security
+Status
+Help
+Contact GitHub
+Pricing
+API
+Training
+Blog
+About
