@@ -1,37 +1,3 @@
-Skip to content
-Search or jump to…
-
-Pull requests
-Issues
-Marketplace
-Explore
- 
-@DrAlta 
-huggingface
-/
-transformers
-606
-30.9k7.3k
-Code
-Issues
-522
-Pull requests
-119
-Actions
-Projects
-12
-Wiki
-Security
-Insights
-transformers/examples/contrib/run_openai_gpt.py /
-@julien-c
-julien-c One last reorder of {scheduler,optimizer}.step()
-Latest commit cf72479 on Mar 20
- History
- 6 contributors
-@thomwolf@aaugustin@LysandreJik@julien-c@alberduris@rlouf
-316 lines (273 sloc)  13.9 KB
-  
 # coding=utf-8
 # Copyright 2018 Google AI, Google Brain and Carnegie Mellon University Authors and the HuggingFace Inc. team.
 # Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
@@ -397,15 +363,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-© 2020 GitHub, Inc.
-Terms
-Privacy
-Security
-Status
-Help
-Contact GitHub
-Pricing
-API
-Training
-Blog
-About
