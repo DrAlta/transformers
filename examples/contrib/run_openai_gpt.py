@@ -273,7 +273,7 @@ def main():
         ##for _ in (0,)):
         ##
         optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-        scheduler=torch.optim.lr_scheduler.MultiplicativeLR(optimizer, lambda x: 1e-2/(2*x),-1)
+        scheduler=torch.optim.lr_scheduler.MultiplicativeLR(optimizer, lambda x: 1e-2**x),-1)
         tr_loss = 0
         nb_tr_steps = 0
         tqdm_bar = tqdm(train_dataloader, desc="Testing")
