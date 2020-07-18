@@ -311,12 +311,8 @@ def main():
                     tqdm_bar.write("{} counter productive:{} > {}".format(bad,newloss,intloss))
                     scheduler.step()
                     if intloss>lowloss:
-                        tqdm_bar.write("this run didn't beat the old loss")
+                        tqdm_bar.write("this run didn't beat the old loss{}".format(lowloss))
                         stage=1
-                else:
-                    tqdm.write("resting")
-                    
-                    #scheduler.step(-1)
                 if oldloss==newloss:
                   tqdm_bar.write("\nlooped {} as good as it gets: {}".format(loop,loss))
                   break
