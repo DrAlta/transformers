@@ -38,6 +38,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from tqdm import tqdm, trange
+import sys
+
+optimizer=[]
+
 
 from transformers import (
     CONFIG_NAME,
@@ -62,12 +66,13 @@ def accuracy(out, labels):
 
 def load_rocstories_dataset(dataset_path):
     """ Output a list of tuples(story, 1st continuation, 2nd continuation, label) """
-    with open(dataset_path, encoding="utf_8") as f:
-        f = csv.reader(f)
-        output = []
-        next(f)  # skip the first line
-        for line in tqdm(f):
-            output.append((" ".join(line[1:5]), line[5], line[6], int(line[-1]) - 1))
+    output = []
+    if dataset_path !="":
+        with open(dataset_path, encoding="utf_8") as f:
+            f = csv.reader(f)
+            next(f)  # skip the first line
+            for line in tqdm(f):
+                output.append((" ".join(line[1:5]), line[5], line[6], int(line[-1]) - 1))
     return output
 
 
@@ -102,7 +107,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, default="openai-gpt", help="pretrained model name")
     parser.add_argument("--do_train", action="store_true", help="Whether to run training.")
-    parser.add_argument("--do_text", action="store_true", help="fix the theoretical lowest loss")
+    parser.add_argument("--do_test", action="store_true", help="fix the theoretical lowest loss")
     parser.add_argument("--do_save", action="store_true", help="Save the model")
     parser.add_argument("--do_eval", action="store_true", help="Whether to run eval on the dev set.")
     parser.add_argument(
@@ -112,7 +117,7 @@ def main():
         required=True,
         help="The output directory where the model predictions and checkpoints will be written.",
     )
-    parser.add_argument("--train_dataset", type=str, default="")
+    parser.add_argument("--train_dataset", type=str, default="/cloze_test_val__spring2016 - cloze_test_ALL_val.csv")
     parser.add_argument("--eval_dataset", type=str, default="")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num_train_epochs", type=int, default=3)
@@ -144,7 +149,8 @@ def main():
     parser.add_argument("--server_ip", type=str, default="", help="Can be used for distant debugging.")
     parser.add_argument("--server_port", type=str, default="", help="Can be used for distant debugging.")
     args = parser.parse_args()
-    print(args)
+    #print(args)
+    
 
     if args.server_ip and args.server_port:
         # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
@@ -217,7 +223,7 @@ def main():
     eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
 
     # Prepare optimizer
-    if args.do_train:
+    if args.do_train or args.do_test:
         if args.max_steps > 0:
             t_total = args.max_steps
             args.num_train_epochs = args.max_steps // (len(train_dataloader) // args.gradient_accumulation_steps) + 1
@@ -226,6 +232,7 @@ def main():
 
         param_optimizer = list(model.named_parameters())
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+        global optimizer_grouped_parameters
         optimizer_grouped_parameters = [
             {
                 "params": [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
@@ -244,8 +251,8 @@ def main():
         for _ in trange(int(args.num_train_epochs), desc="Epoch"):
             tr_loss = 0
             nb_tr_steps = 0
-            tqdm_bar = tqdm(train_dataloader, desc="Training")
-            for step, batch in enumerate(tqdm_bar):
+            tqdm_bar = tqdm(tqdm_bar, desc="Training")
+            for step, batch in enumerate(train_dataloader):
                 batch = tuple(t.to(device) for t in batch)
                 input_ids, mc_token_ids, lm_labels, mc_labels = batch
                 losses = model(input_ids, mc_token_ids=mc_token_ids, lm_labels=lm_labels, mc_labels=mc_labels)
@@ -263,53 +270,84 @@ def main():
     if args.do_test:
         nb_tr_steps, tr_loss, exp_average_loss = 0, 0, None
         model.train()
-        for _ in trange(int(args.num_train_epochs), desc="Epoch"):
-            tr_loss = 0
-            nb_tr_steps = 0
-            tqdm_bar = tqdm(train_dataloader, desc="Training")
-            for step, batch in enumerate(tqdm_bar):
-                batch = tuple(t.to(device) for t in batch)
+        ##for _ in (0,)):
+        ##
+        optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
+        scheduler=torch.optim.lr_scheduler.MultiplicativeLR(optimizer, lambda x: 1e-2/(2*x),-1)
+        tr_loss = 0
+        nb_tr_steps = 0
+        tqdm_bar = tqdm(train_dataloader, desc="Testing")
+        maxloop=0 
+        avrgloops=0
+        loop=0 
+        prog=""        
+        for step, batch in enumerate(tqdm_bar):
+            stage=0
+            batch = tuple(t.to(device) for t in batch)
+            input_ids, mc_token_ids, lm_labels, mc_labels = batch
+            losses = model(input_ids, mc_token_ids=mc_token_ids, lm_labels=lm_labels, mc_labels=mc_labels)
+            loss = args.lm_coef * losses[0] + losses[1]
+            loss.backward()
+            lowloss=loss.item()
+            tqdm_bar.set_description("Testing {} loss:{}".format(loop,lowloss))
+            scheduler.step(-1)
+            optimizer.step()
+            optimizer.zero_grad()
+            if loop>maxloop:
+                maxloop=loop
+            avrgloops +=loop
+            loop=0
+            newloss=loss.item()
+            intloss=math.inf
+            oldloss=intloss
+            bad=0
+            if math.isnan(loss.item()):
+                tqdm_bar.write("beeping NaN")
+            localloss=math.inf
+            while True:
+                tqdm_bar.set_description("Testing {} loss:{}".format(loop,newloss))
+                loop = loop + 1
+                if intloss < newloss:
+                    tqdm_bar.write("{} counter productive:{} > {}".format(bad,newloss,intloss))
+                    if bad==0:
+                        localloss=intloss
+                    bad+=1
+                else:
+                    if intloss>localloss:
+                        if stage == 0:
+                           stage=1
+                           tqdm_bar.write("stage2")
+                        else:
+                            
+                            lowloss=intloss
+                            scheduler.step()
+                    
+                    if bad==0:
+                        localloss=intloss
+                    bad=0
+                if oldloss==newloss:
+                  tqdm_bar.write("\nlooped {} as good as it gets: {}".format(loop,loss))
+                  break
                 input_ids, mc_token_ids, lm_labels, mc_labels = batch
                 losses = model(input_ids, mc_token_ids=mc_token_ids, lm_labels=lm_labels, mc_labels=mc_labels)
                 loss = args.lm_coef * losses[0] + losses[1]
                 loss.backward()
-                optimizer.step()
-                scheduler.step()
                 optimizer.zero_grad()
-
-                loop=0
-                newloss=loss.item()
-                intloss=math.inf
                 oldloss=intloss
-                if math.innan(loss.item()):
-                    print("beeping NaN")
-                while True:
-                    learnrate=args.learning_rate
-                    optimizer = AdamW(optimizer_grouped_parameters, lr=learnrate, eps=args.adam_epsilon)
-
-                    loop = loop + 1
-                    if intloss < newloss:
-                        print("counter productive:",newloss,">",intloss)
-                        learnrate=args.learning_rate/2
-                        optimizer = AdamW(optimizer_grouped_parameters, lr=learnrate, eps=args.adam_epsilon)
-                    if oldloss==newloss:
-                      print("as good as it gets:",loss)
-                      break
-                    loss = args.lm_coef * losses[0] + losses[1]
-                    loss.backward()
-                    optimizer.step()
-                    scheduler.step()
-                    optimizer.zero_grad()
-                    oldloss=intloss
-                    intloss=newloss
-                    newloss=loss.item()
-                tr_loss += loss.item()
-                exp_average_loss = (
-                    loss.item() if exp_average_loss is None else 0.7 * exp_average_loss + 0.3 * loss.item()
-                )
-                nb_tr_steps += 1
-                tqdm_bar.desc = "Training loss: {:.2e} lr: {:.2e}".format(exp_average_loss, scheduler.get_lr()[0])
-
+                intloss=newloss
+                newloss=loss.item()
+                if newloss < lowloss:
+                    bad=0
+                if newloss < lowloss:
+                    lowloss=newloss
+            tr_loss += lowloss
+            avgloops += loop
+            exp_average_loss = (
+                loss.item() if exp_average_loss is None else 0.7 * exp_average_loss + 0.3 * loss.item()
+            )
+            nb_tr_steps += 1
+            tqdm_bar.desc = "\nmaxloop:{} average loops:{} Training loss: {:.2e}".format(maxloop, (avgloops / nb_tr_steps), exp_average_loss)
+            
     # Save a trained model
     if args.do_train or args.do_save:
         # Save a trained model, configuration and tokenizer
