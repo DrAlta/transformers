@@ -289,6 +289,7 @@ def main():
             loss = args.lm_coef * losses[0] + losses[1]
             loss.backward()
             lowloss=loss.item()
+            tqdm.write("reseting lowlost")
             tqdm_bar.set_description("Testing {} loss:{}".format(loop,lowloss))
             scheduler.step(-1)
             optimizer.step()
@@ -303,18 +304,19 @@ def main():
             bad=0
             if math.isnan(loss.item()):
                 tqdm_bar.write("beeping NaN")
-            localloss=math.inf
             while True:
                 tqdm_bar.set_description("Testing {} loss:{}".format(loop,newloss))
                 loop = loop + 1
                 if intloss < newloss:
                     tqdm_bar.write("{} counter productive:{} > {}".format(bad,newloss,intloss))
+                    scheduler.step()
                     if intloss>lowloss:
                         tqdm_bar.write("this run didn't beat the old loss")
                         stage=1
-                    scheduler.step()
                 else:
-                    scheduler.step(-1)
+                    tqdm.write("resting")
+                    
+                    #scheduler.step(-1)
                 if oldloss==newloss:
                   tqdm_bar.write("\nlooped {} as good as it gets: {}".format(loop,loss))
                   break
